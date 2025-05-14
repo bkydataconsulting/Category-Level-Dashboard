@@ -21,22 +21,10 @@ def build_hierarchy(df):
     
     return hierarchy
 
-def format_hierarchy(hierarchy, level=0):
-    """
-    Format the hierarchy into a readable string with proper indentation (4 spaces per level)
-    """
-    result = []
-    for key, value in hierarchy.items():
-        result.append('    ' * level + key)  # 4 spaces per level
-        if value:
-            result.extend(format_hierarchy(value, level + 1))
-    return result
-
 def format_hierarchy_styled(hierarchy, level=0):
     """
-    Format the hierarchy into a readable string with 8 spaces per level and different colors/sizes for each level.
+    Format the hierarchy into a readable string with different colors/sizes for each level.
     """
-    # Define styles for up to 5 levels (add more if needed)
     styles = [
         'color:#ffffff; font-size:22px; font-weight:bold;',   # Level 0
         'color:#ffd700; font-size:20px; font-weight:bold;',   # Level 1
@@ -45,41 +33,66 @@ def format_hierarchy_styled(hierarchy, level=0):
         'color:#87ceeb; font-size:15px;',                     # Level 4
         'color:#cccccc; font-size:14px;',                     # Level 5+
     ]
+    
     result = []
     for key, value in hierarchy.items():
         style = styles[level] if level < len(styles) else styles[-1]
-        indent = '&nbsp;' * 8 * level  # 8 spaces per level
-        result.append(f'<div style="{style}">{indent}{key}</div>')
+        result.append(f'<div style="{style}">{key}</div>')
         if value:
             result.extend(format_hierarchy_styled(value, level + 1))
     return result
 
-def format_hierarchy_for_expander(hierarchy, level=0):
+def show_parent_master_only(df):
     """
-    Format the hierarchy as indented colored HTML for display inside an expander.
+    Show only unique Parent/Master category pairs with indentation format, grouped by parent.
     """
-    styles = [
-        'color:#ffd700; font-size:18px; font-weight:bold;',   # Level 1
-        'color:#00ffcc; font-size:16px;',                     # Level 2
-        'color:#ff69b4; font-size:15px;',                     # Level 3
-        'color:#87ceeb; font-size:14px;',                     # Level 4
-        'color:#cccccc; font-size:13px;',                     # Level 5+
-    ]
-    result = []
-    for key, value in hierarchy.items():
-        style = styles[level-1] if level-1 < len(styles) else styles[-1]
-        indent = '&nbsp;' * 4 * level
-        result.append(f'<div style="{style}">{indent}{key}</div>')
-        if value:
-            result.extend(format_hierarchy_for_expander(value, level + 1))
-    return result
+    if 'PARENT CATEGORY' in df.columns and 'MASTER CATEGORY' in df.columns:
+        lines = []
+        # Group by Parent Category
+        for parent in df['PARENT CATEGORY'].unique():
+            if pd.isna(parent):
+                continue
+            lines.append(parent)
+            # Get all master categories for this parent
+            masters = df[df['PARENT CATEGORY'] == parent]['MASTER CATEGORY'].unique()
+            for master in sorted(masters):
+                if pd.isna(master):
+                    continue
+                lines.append('    ' + master)  # 4 spaces indentation
+            lines.append('')  # Add blank line between parents
+        return '\n'.join(lines).strip()
+    else:
+        return 'Columns not found!'
+
+def show_master_sub1_pairs(df):
+    """
+    Show Master/Subcategory 1 pairs with indentation format, grouped by master.
+    """
+    if 'MASTER CATEGORY' in df.columns and 'SUBCATEGORY 1' in df.columns:
+        lines = []
+        # Group by Master Category
+        for master in df['MASTER CATEGORY'].unique():
+            if pd.isna(master):
+                continue
+            lines.append(master)
+            # Get all subcategory 1 items for this master
+            sub1s = df[
+                (df['MASTER CATEGORY'] == master) & 
+                (df['SUBCATEGORY 1'].notna()) & 
+                (df['SUBCATEGORY 1'] != '')
+            ]['SUBCATEGORY 1'].unique()
+            for sub1 in sorted(sub1s):
+                lines.append('    ' + sub1)  # 4 spaces indentation
+            lines.append('')  # Add blank line between masters
+        return '\n'.join(lines).strip()
+    else:
+        return 'Columns not found!'
 
 def process_file(uploaded_file):
     """
-    Process the uploaded file and return the formatted hierarchy
+    Process the uploaded file and return the DataFrame
     """
     try:
-        # Read file directly from the uploaded file object
         if uploaded_file.name.endswith('.csv'):
             df = pd.read_csv(uploaded_file)
             st.write("Successfully read CSV file")
@@ -90,28 +103,111 @@ def process_file(uploaded_file):
             st.error(f"Unsupported file type: {uploaded_file.name}")
             return None
         
-        # Display column names for debugging
         st.write("Columns found:", df.columns.tolist())
-        
-        # Build and format hierarchy
-        hierarchy = build_hierarchy(df)
-        formatted = format_hierarchy(hierarchy)
-        return '\n'.join(formatted)
+        return df
     except Exception as e:
         st.error(f"Error processing file: {str(e)}")
         return None
 
-def display_top_level_expanders(hierarchy):
+def format_hierarchy_for_expander(items, level=0):
     """
-    Only use expanders for top-level categories. Show subcategories as indented colored text inside.
+    Format items for display inside an expander with proper styling and indentation.
     """
-    for key, value in hierarchy.items():
-        with st.expander(key, expanded=False):
-            if value:
-                html = '<br>'.join(format_hierarchy_for_expander(value, level=1))
-                st.markdown(html, unsafe_allow_html=True)
-            else:
-                st.markdown(f'<span style="color:#ffd700; font-size:16px;">{key}</span>', unsafe_allow_html=True)
+    styles = [
+        'color:#ffffff; font-size:20px; font-weight:bold;',   # Level 0 (Parent)
+        'color:#ffd700; font-size:18px; font-weight:bold;',   # Level 1 (Master)
+        'color:#00ffcc; font-size:16px;',                     # Level 2 (Sub1)
+        'color:#ff69b4; font-size:15px;',                     # Level 3 (Sub2)
+    ]
+    
+    result = []
+    indent = '&nbsp;' * 4 * level
+    style = styles[level] if level < len(styles) else styles[-1]
+    
+    for item in items:
+        result.append(f'<div style="{style}">{indent}{item}</div>')
+    
+    return result
+
+def get_hierarchy_by_parent(df):
+    """
+    Organize the hierarchy by parent category with all subcategories.
+    """
+    hierarchies = {}
+    
+    for parent in df['PARENT CATEGORY'].unique():
+        if pd.isna(parent):
+            continue
+            
+        parent_data = df[df['PARENT CATEGORY'] == parent]
+        hierarchy = {
+            'parent': parent,
+            'masters': []
+        }
+        
+        for master in parent_data['MASTER CATEGORY'].unique():
+            if pd.isna(master):
+                continue
+                
+            master_data = parent_data[parent_data['MASTER CATEGORY'] == master]
+            master_dict = {
+                'name': master,
+                'sub1': []
+            }
+            
+            # Get Subcategory 1 items
+            sub1_data = master_data['SUBCATEGORY 1'].dropna().unique()
+            for sub1 in sub1_data:
+                if pd.isna(sub1) or sub1 == '':
+                    continue
+                    
+                sub1_dict = {
+                    'name': sub1,
+                    'sub2': []
+                }
+                
+                # Get Subcategory 2 items if they exist
+                if 'SUBCATEGORY 2' in master_data.columns:
+                    sub2_data = master_data[
+                        (master_data['SUBCATEGORY 1'] == sub1) & 
+                        (master_data['SUBCATEGORY 2'].notna()) & 
+                        (master_data['SUBCATEGORY 2'] != '')
+                    ]['SUBCATEGORY 2'].unique()
+                    
+                    sub1_dict['sub2'] = list(sub2_data)
+                
+                master_dict['sub1'].append(sub1_dict)
+            
+            hierarchy['masters'].append(master_dict)
+        
+        hierarchies[parent] = hierarchy
+    
+    return hierarchies
+
+def display_hierarchy_by_parent(df):
+    """
+    Display the hierarchy using expandable sections by parent category.
+    """
+    hierarchies = get_hierarchy_by_parent(df)
+    
+    for parent, hierarchy in hierarchies.items():
+        with st.expander(parent, expanded=False):
+            # Display masters under this parent
+            for master in hierarchy['masters']:
+                # Display master category
+                master_html = format_hierarchy_for_expander([master['name']], level=1)
+                st.markdown('<br>'.join(master_html), unsafe_allow_html=True)
+                
+                # Display subcategories
+                for sub1 in master['sub1']:
+                    # Display Subcategory 1
+                    sub1_html = format_hierarchy_for_expander([sub1['name']], level=2)
+                    st.markdown('<br>'.join(sub1_html), unsafe_allow_html=True)
+                    
+                    # Display Subcategory 2 if it exists
+                    if sub1['sub2']:
+                        sub2_html = format_hierarchy_for_expander(sub1['sub2'], level=3)
+                        st.markdown('<br>'.join(sub2_html), unsafe_allow_html=True)
 
 def main():
     st.title("Category Hierarchy Generator")
@@ -120,26 +216,34 @@ def main():
     
     if uploaded_file is not None:
         try:
-            uploaded_file.seek(0)
-            result = process_file(uploaded_file)
-            if result:
-                uploaded_file.seek(0)
-                if uploaded_file.name.endswith('.csv'):
-                    df = pd.read_csv(uploaded_file)
-                else:
-                    df = pd.read_excel(uploaded_file, engine='openpyxl')
-                hierarchy = build_hierarchy(df)
-                st.subheader("Expandable Hierarchy View (Top Level Only)")
-                display_top_level_expanders(hierarchy)
-                st.subheader("Plain Text Hierarchy (for copy/paste)")
-                st.text_area("Plain Text Hierarchy", result, height=400)
-                if st.button("Copy to Clipboard"):
-                    pyperclip.copy(result)
-                    st.success("Copied to clipboard!")
-                if st.button("Download as TXT"):
-                    with open("hierarchy.txt", "w") as f:
-                        f.write(result)
-                    st.success("Downloaded as hierarchy.txt!")
+            df = process_file(uploaded_file)
+            
+            if df is not None:
+                # 1. Colored Expandable Hierarchy View
+                st.subheader("Category Hierarchy")
+                display_hierarchy_by_parent(df)
+                
+                # Create two columns for the text sections
+                col1, col2 = st.columns(2)
+                
+                # 2. Parent/Master Text Copy in first column
+                with col1:
+                    st.subheader("Parent/Master Categories")
+                    parent_master = show_parent_master_only(df)
+                    st.text_area("Parent/Master Categories", parent_master, height=400)
+                    if st.button("Copy Parent/Master"):
+                        pyperclip.copy(parent_master)
+                        st.success("Parent/Master copied to clipboard!")
+                
+                # 3. Master/Sub1 Text Copy in second column
+                with col2:
+                    st.subheader("Master/Subcategory 1 Pairs")
+                    master_sub1 = show_master_sub1_pairs(df)
+                    st.text_area("Master/Subcategory 1 Pairs", master_sub1, height=400)
+                    if st.button("Copy Master/Sub1"):
+                        pyperclip.copy(master_sub1)
+                        st.success("Master/Sub1 copied to clipboard!")
+                
         except Exception as e:
             st.error(f"Error processing file: {str(e)}")
 
